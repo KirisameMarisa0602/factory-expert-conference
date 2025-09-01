@@ -55,3 +55,10 @@ Thumbs.db
 .env/
 .venv/
 venv/
+client/client
+client/*.o
+client/moc_*
+client/ui_*
+client/qrc_*
+client/Makefile
+client/.qmake.stash

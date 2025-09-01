@@ -12,14 +12,7 @@ HEADERS += \
     src/roomhub.h \
     src/udprelay.h
 
-# 引入共享协议（此 pri 内部已经把 protocol.h/.cpp 加入 HEADERS/SOURCES）
-COMMON_DIR = $$PWD/../common
+# 引入共享协议（common.pri 内已将 protocol.h/.cpp 纳入）
+# 注意：common 目录位于本工程下的 server/common
+COMMON_DIR = $$PWD/common
 include($$COMMON_DIR/common.pri)
-
-isEmpty(COMMON_DIR) {
-    error("common.pri requires COMMON_DIR to be set by includer")
-}
-
-INCLUDEPATH += $$PWD/common
-HEADERS += common/protocol.h
-SOURCES += common/protocol.cpp

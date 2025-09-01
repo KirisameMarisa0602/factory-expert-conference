@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>ClientExpert</class>
+ <widget class="QWidget" name="ClientExpert">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>950</width>
+    <height>600</height>
+   </rect>
+  </property>
+  <property name="windowTitle">
+   <string>专家端主界面</string>
+  </property>
+  <layout class="QVBoxLayout" name="verticalLayout">
+   <item>
+    <widget class="QTabWidget" name="tabWidget">
+     <property name="currentIndex">
+      <number>0</number>
+     </property>
+     <widget class="QWidget" name="tabWorkorders">
+      <attribute name="title">
+       <string>工单管理</string>
+      </attribute>
+      <layout class="QVBoxLayout" name="verticalLayoutTabWorkorders"/>
+     </widget>
+     <widget class="QWidget" name="tabKnowledge">
+      <attribute name="title">
+       <string>知识库</string>
+      </attribute>
+      <layout class="QVBoxLayout" name="verticalLayoutTabKnowledge"/>
+     </widget>
+     <widget class="QWidget" name="tabRealtime">
+      <attribute name="title">
+       <string>实时通讯</string>
+      </attribute>
+      <layout class="QVBoxLayout" name="verticalLayoutTabRealtime"/>
+     </widget>
+    </widget>
+   </item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>

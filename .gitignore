@@ -1,0 +1,57 @@
+# Build artifacts
+build-*/
+bin/
+out/
+dist/
+*.o
+*.obj
+*.lo
+*.la
+*.a
+*.lib
+*.dll
+*.so
+*.so.*
+*.dylib
+*.rcc
+*.qrc.depends
+moc_*
+ui_*
+qrc_*
+*.qm
+
+# QMake/QtCreator user files
+*.pro.user
+*.pro.user.*
+*.qbs.user
+*.qbs.user.*
+*.qmlproject.user
+*.qmlproject.user.*
+.qmake.stash
+.qmake.cache
+
+# CMake (if present)
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+Makefile
+*.cmake
+compile_commands.json
+
+# IDE/editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Python env (if any)
+.env/
+.venv/
+venv/

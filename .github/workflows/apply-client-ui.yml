@@ -1,0 +1,1836 @@
+name: Apply client UI and open PR
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Populate client files
+        run: |
+          mkdir -p scripts
+          cat > scripts/populate-client-ui.sh <<'EOS'
+          #!/usr/bin/env bash
+          set -euo pipefail
+
+          mkdir -p client/Headers client/Sources client/Forms
+
+          cat > client/client.pro <<'EOF'
+QT += core gui widgets network sql
+CONFIG += c++11
+TEMPLATE = app
+TARGET = client
+
+INCLUDEPATH += Headers \
+               Headers/comm
+
+SOURCES += \
+    Sources/*.cpp \
+    Sources/comm/*.cpp
+
+HEADERS += \
+    Headers/*.h \
+    Headers/comm/*.h
+
+FORMS += \
+    Forms/*.ui
+
+# Conditionally include resources if the qrc exists to avoid build errors
+exists(Resources/resources.qrc) {
+    RESOURCES += Resources/resources.qrc
+}
+
+QMAKE_CXXFLAGS += -Wall -Wextra
+EOF
+
+          cat > client/Headers/client_expert.h <<'EOF'
+#ifndef CLIENT_EXPERT_H
+#define CLIENT_EXPERT_H
+
+#include <QWidget>
+#include <QVector>
+#include "orderinfo.h"
+
+QT_BEGIN_NAMESPACE
+namespace Ui { class ClientExpert; }
+QT_END_NAMESPACE
+
+class ClientExpert : public QWidget
+{
+    Q_OBJECT
+
+public:
+    explicit ClientExpert(QWidget *parent = nullptr);
+    ~ClientExpert();
+
+private slots:
+    void on_btnAccept_clicked();
+    void on_btnReject_clicked();
+    void on_tabChanged(int idx);
+    void onSearchOrder();
+    void refreshOrders();
+
+private:
+    Ui::ClientExpert *ui;
+    QVector<OrderInfo> orders;
+    bool joinedOrder = false;
+
+    void sendUpdateOrder(int orderId, const QString& status);
+};
+
+#endif // CLIENT_EXPERT_H
+EOF
+
+          cat > client/Headers/client_factory.h <<'EOF'
+#ifndef CLIENT_FACTORY_H
+#define CLIENT_FACTORY_H
+
+#include <QWidget>
+#include <QVector>
+#include "orderinfo.h"
+
+QT_BEGIN_NAMESPACE
+namespace Ui { class ClientFactory; }
+QT_END_NAMESPACE
+
+class ClientFactory : public QWidget
+{
+    Q_OBJECT
+
+public:
+    explicit ClientFactory(QWidget *parent = nullptr);
+    ~ClientFactory();
+
+private slots:
+    void on_btnNewOrder_clicked();
+    void on_btnDeleteOrder_clicked();
+    void on_tabChanged(int idx);
+    void onSearchOrder();
+    void refreshOrders();
+
+private:
+    Ui::ClientFactory *ui;
+    QVector<OrderInfo> orders;
+    bool deletingOrder = false;
+    void sendCreateOrder(const QString& title, const QString& desc);
+};
+
+#endif // CLIENT_FACTORY_H
+EOF
+
+          cat > client/Headers/client_globals.h <<'EOF'
+#ifndef CLIENT_GLOBALS_H
+#define CLIENT_GLOBALS_H
+
+#include <QString>
+
+extern QString g_factoryUsername;
+extern QString g_expertUsername;
+
+#endif // CLIENT_GLOBALS_H
+EOF
+
+          cat > client/Headers/login.h <<'EOF'
+#ifndef LOGIN_H
+#define LOGIN_H
+
+#include <QWidget>
+#include "networkclient.h"
+
+namespace Ui {
+class Login;
+}
+
+class Login : public QWidget
+{
+    Q_OBJECT
+
+public:
+    explicit Login(QWidget *parent = nullptr);
+    ~Login();
+
+private slots:
+    void on_roleComboBox_currentIndexChanged(int index);
+    void on_loginButton_clicked();
+    void on_goRegisterButton_clicked();
+
+private:
+    void initUI();
+    void applyRoleStyle(const QString &role);
+    void showError(const QString &msg);
+    void showInfo(const QString &msg);
+
+private:
+    Ui::Login *ui;
+    NetworkClient *net_;
+};
+
+#endif // LOGIN_H
+EOF
+
+          cat > client/Headers/networkclient.h <<'EOF'
+#ifndef NETWORKCLIENT_H
+#define NETWORKCLIENT_H
+
+#include <QObject>
+#include <QJsonObject>
+
+class NetworkClient : public QObject
+{
+    Q_OBJECT
+public:
+    explicit NetworkClient(const QString &host = "127.0.0.1", quint16 port = 12345, QObject *parent = nullptr);
+    QJsonObject sendRequest(const QJsonObject &req, int timeoutMs = 3000);
+
+private:
+    QString host_;
+    quint16 port_;
+};
+
+#endif // NETWORKCLIENT_H
+EOF
+
+          cat > client/Headers/orderinfo.h <<'EOF'
+#ifndef ORDERINFO_H
+#define ORDERINFO_H
+
+#include <QString>
+
+struct OrderInfo {
+    int id = 0;
+    QString title;
+    QString desc;
+    QString status;
+};
+
+#endif // ORDERINFO_H
+EOF
+
+          cat > client/Headers/register.h <<'EOF'
+#ifndef REGISTER_H
+#define REGISTER_H
+
+#include <QWidget>
+#include "networkclient.h"
+
+namespace Ui { class Register; }
+
+class Register : public QWidget
+{
+    Q_OBJECT
+public:
+    explicit Register(QWidget *parent = nullptr);
+    ~Register();
+
+signals:
+    void backToLogin();
+
+private slots:
+    void on_registerButton_clicked();
+    void on_backLoginButton_clicked();
+    void on_roleComboBox_currentIndexChanged(int index); // 新增槽，响应身份选择变化
+
+private:
+    void initUI();
+    void applyRoleStyle(const QString &role);
+
+private:
+    Ui::Register *ui;
+    NetworkClient *net_;
+    void showError(const QString &msg);
+    void showInfo(const QString &msg);
+};
+
+#endif // REGISTER_H
+EOF
+
+          cat > client/Headers/roomdialogs.h <<'EOF'
+#pragma once
+
+#include <QDialog>
+#include <QWidget>
+#include <QString>
+
+namespace Ui {
+class RoomPublishDialog;
+class RoomPasswordDialog;
+}
+
+class RoomPublishDialog : public QDialog
+{
+    Q_OBJECT
+public:
+    explicit RoomPublishDialog(QWidget *parent = nullptr);
+    ~RoomPublishDialog();
+
+    QString roomId() const;
+    QString title() const;
+    QString password() const;
+    QString hostUrl() const;
+
+private:
+    Ui::RoomPublishDialog *ui;
+};
+
+class RoomPasswordDialog : public QDialog
+{
+    Q_OBJECT
+public:
+    explicit RoomPasswordDialog(const QString &roomTitle = QString(), QWidget *parent = nullptr);
+    ~RoomPasswordDialog();
+
+    QString password() const;
+
+private:
+    Ui::RoomPasswordDialog *ui;
+};
+
+class VideoWindow : public QWidget
+{
+    Q_OBJECT
+public:
+    explicit VideoWindow(const QString &roomId, const QString &hostUrl = QString(), QWidget *parent = nullptr);
+    ~VideoWindow();
+
+    void setHostUrl(const QString &url);
+
+private:
+    QString roomId_;
+    QString hostUrl_;
+};
+EOF
+
+          cat > client/Sources/client_expert.cpp <<'EOF'
+#include "client_expert.h"
+#include "ui_client_expert.h"
+#include "client_globals.h"
+#include "networkclient.h"
+#include "roomdialogs.h"
+
+#include <QJsonArray>
+#include <QJsonValue>
+#include <QMessageBox>
+#include <QTimer>
+#include <QTableWidget>
+#include <QPushButton>
+#include <QHeaderView>
+#include <QBoxLayout>
+#include <QHBoxLayout>
+#include <QSizePolicy>
+#include <QLineEdit>
+#include <QComboBox>
+
+static const char* SERVER_HOST = "127.0.0.1";
+static const quint16 SERVER_PORT = 12345;
+
+ClientExpert::ClientExpert(QWidget *parent) :
+    QWidget(parent),
+    ui(new Ui::ClientExpert)
+{
+    ui->setupUi(this);
+
+    if (ui->tabWidget->count() > 0) ui->tabWidget->setCurrentIndex(0);
+
+    for (int i = ui->tabWidget->count()-1; i >= 0; --i) {
+        if (ui->tabWidget->tabText(i).contains(QStringLiteral("设备管理"))) {
+            ui->tabWidget->removeTab(i);
+        }
+    }
+
+    ui->comboBoxStatus->clear();
+    ui->comboBoxStatus->addItem(QStringLiteral("全部"));
+    ui->comboBoxStatus->addItem(QStringLiteral("待处理"));
+    ui->comboBoxStatus->addItem(QStringLiteral("已接受"));
+    ui->comboBoxStatus->addItem(QStringLiteral("已拒绝"));
+
+    connect(ui->tabWidget, &QTabWidget::currentChanged, this, &ClientExpert::on_tabChanged);
+    connect(ui->btnAccept, &QPushButton::clicked, this, &ClientExpert::on_btnAccept_clicked);
+    connect(ui->btnReject, &QPushButton::clicked, this, &ClientExpert::on_btnReject_clicked);
+    connect(ui->btnRefreshOrderStatus, &QPushButton::clicked, this, &ClientExpert::refreshOrders);
+    connect(ui->btnSearchOrder, &QPushButton::clicked, this, &ClientExpert::onSearchOrder);
+
+    connect(ui->comboBoxStatus, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            this, &ClientExpert::refreshOrders);
+    connect(ui->comboBoxStatus, &QComboBox::currentTextChanged,
+            this, &ClientExpert::refreshOrders);
+    if (auto le = ui->lineEditKeyword) {
+        connect(le, &QLineEdit::returnPressed, this, &ClientExpert::refreshOrders);
+    }
+
+    refreshOrders();
+}
+
+ClientExpert::~ClientExpert()
+{
+    delete ui;
+}
+
+void ClientExpert::refreshOrders()
+{
+    NetworkClient net(SERVER_HOST, SERVER_PORT);
+    QJsonObject req;
+    req["action"] = "get_orders";
+    req["role"] = "expert";
+    if (!g_expertUsername.isEmpty()) req["username"] = g_expertUsername;
+    QString keyword = ui->lineEditKeyword->text().trimmed();
+    if (!keyword.isEmpty()) req["keyword"] = keyword;
+    QString status = ui->comboBoxStatus->currentText();
+    if (status != QStringLiteral("全部")) req["status"] = status;
+
+    QJsonObject resp = net.sendRequest(req);
+    if (!resp.contains("ok") || !resp["ok"].toBool()) {
+        QMessageBox::warning(this, QStringLiteral("提示"), QStringLiteral("服务器响应异常"));
+        return;
+    }
+    orders.clear();
+    QJsonArray arr = resp.value("orders").toArray();
+    for (const QJsonValue& v : arr) {
+        QJsonObject o = v.toObject();
+        OrderInfo od;
+        od.id = o.value("id").toInt();
+        od.title = o.value("title").toString();
+        od.desc = o.value("desc").toString();
+        od.status = o.value("status").toString();
+        orders.append(od);
+    }
+    auto* tbl = ui->tableOrders;
+    tbl->clear();
+    tbl->setColumnCount(4);
+    tbl->setRowCount(orders.size());
+    QStringList headers{QStringLiteral("工单号"), QStringLiteral("标题"), QStringLiteral("描述"), QStringLiteral("状态")};
+    tbl->setHorizontalHeaderLabels(headers);
+    for (int i = 0; i < orders.size(); ++i) {
+        const auto& od = orders[i];
+        tbl->setItem(i, 0, new QTableWidgetItem(QString::number(od.id)));
+        tbl->setItem(i, 1, new QTableWidgetItem(od.title));
+        tbl->setItem(i, 2, new QTableWidgetItem(od.desc));
+        tbl->setItem(i, 3, new QTableWidgetItem(od.status));
+    }
+    tbl->resizeColumnsToContents();
+}
+
+void ClientExpert::on_btnAccept_clicked()
+{
+    int row = ui->tableOrders->currentRow();
+    if (row < 0 || row >= orders.size()) {
+        QMessageBox::warning(this, QStringLiteral("提示"), QStringLiteral("请选择一个工单"));
+        return;
+    }
+    int id = orders[row].id;
+    sendUpdateOrder(id, QStringLiteral("已接受"));
+    QTimer::singleShot(150, this, [this]{ refreshOrders(); });
+}
+
+void ClientExpert::on_btnReject_clicked()
+{
+    int row = ui->tableOrders->currentRow();
+    if (row < 0 || row >= orders.size()) {
+        QMessageBox::warning(this, QStringLiteral("提示"), QStringLiteral("请选择一个工单"));
+        return;
+    }
+    int id = orders[row].id;
+    sendUpdateOrder(id, QStringLiteral("已拒绝"));
+    QTimer::singleShot(150, this, [this]{ refreshOrders(); });
+}
+
+void ClientExpert::sendUpdateOrder(int orderId, const QString& status)
+{
+    NetworkClient net(SERVER_HOST, SERVER_PORT);
+    QJsonObject req;
+    req["action"] = "update_order";
+    req["id"] = orderId;
+    req["status"] = status;
+    QJsonObject resp = net.sendRequest(req);
+    if (!resp.contains("ok") || !resp["ok"].toBool()) {
+        QMessageBox::warning(this, QStringLiteral("提示"), QStringLiteral("服务器响应异常"));
+    }
+}
+
+void ClientExpert::on_tabChanged(int idx)
+{
+    if (idx == 0) refreshOrders();
+
+    if (ui->tabWidget->tabText(idx).contains(QStringLiteral("实时通讯"))) {
+        QWidget *tab = ui->tabWidget->widget(idx);
+
+        QWidget *container = tab->findChild<QWidget*>("realtime_container");
+        QTableWidget *list = nullptr;
+        if (container) list = container->findChild<QTableWidget*>("tableRooms");
+        if (!list) list = tab->findChild<QTableWidget*>("tableRooms");
+        if (!list) {
+            QWidget *c = new QWidget(tab);
+            c->setObjectName("realtime_container");
+            QVBoxLayout *containerLayout = new QVBoxLayout(c);
+            containerLayout->setContentsMargins(8,8,8,8);
+            containerLayout->setSpacing(8);
+            QHBoxLayout *topRow = new QHBoxLayout();
+            topRow->addStretch();
+            containerLayout->addLayout(topRow);
+            QTableWidget *table = new QTableWidget(c);
+            table->setObjectName("tableRooms");
+            table->setColumnCount(4);
+            table->setHorizontalHeaderLabels(QStringList{QStringLiteral("房间号"), QStringLiteral("标题"), QStringLiteral("发布者"), QStringLiteral("操作")});
+            table->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
+            table->setMinimumHeight(300);
+            containerLayout->addWidget(table);
+            if (auto box = qobject_cast<QBoxLayout*>(tab->layout())) box->insertWidget(0, c);
+            else if (tab->layout()) tab->layout()->addWidget(c);
+            else { c->setGeometry(8,8,tab->width()-16, tab->height()-16); c->show(); }
+            list = table;
+        }
+
+        NetworkClient net(SERVER_HOST, SERVER_PORT);
+        QJsonObject req; req["action"] = "list_rooms";
+        QJsonObject resp = net.sendRequest(req);
+        if (resp.contains("ok") && resp["ok"].toBool()) {
+            list->clearContents();
+            QJsonArray arr = resp.value("rooms").toArray();
+            list->setRowCount(arr.size());
+            for (int i=0;i<arr.size();++i) {
+                QJsonObject o = arr[i].toObject();
+                QString room_id = o.value("room_id").toString();
+                QString title = o.value("title").toString();
+                QString publisher = o.value("factory_user").toString();
+                QString host = o.value("host_url").toString();
+
+                list->setItem(i,0,new QTableWidgetItem(room_id));
+                list->setItem(i,1,new QTableWidgetItem(title));
+                list->setItem(i,2,new QTableWidgetItem(publisher));
+
+                QPushButton *btnEnter = new QPushButton(QStringLiteral("进入"), list);
+                btnEnter->setProperty("room_id", room_id);
+                btnEnter->setProperty("room_title", title);
+                btnEnter->setProperty("room_host", host);
+                connect(btnEnter, &QPushButton::clicked, this, [this, btnEnter]() {
+                    QString roomId = btnEnter->property("room_id").toString();
+                    QString title = btnEnter->property("room_title").toString();
+                    QString host = btnEnter->property("room_host").toString();
+
+                    RoomPasswordDialog dlg(title, this);
+                    if (dlg.exec() == QDialog::Accepted) {
+                        QString entered = dlg.password();
+
+                        NetworkClient net(SERVER_HOST, SERVER_PORT);
+                        QJsonObject vreq;
+                        vreq["action"] = QStringLiteral("validate_room_password");
+                        vreq["room_id"] = roomId;
+                        vreq["password"] = entered;
+                        QJsonObject vresp = net.sendRequest(vreq);
+                        if (!vresp.contains("ok") || !vresp["ok"].toBool()) {
+                            QString reason = vresp.contains("reason") ? vresp.value("reason").toString() : QStringLiteral("房间密码错误或服务器异常");
+                            QMessageBox::warning(this, QStringLiteral("验证失败"), reason);
+                            return;
+                        }
+                        VideoWindow *vw = new VideoWindow(roomId, host);
+                        vw->setAttribute(Qt::WA_DeleteOnClose);
+                        vw->show();
+                    }
+                });
+
+                list->setCellWidget(i, 3, btnEnter);
+            }
+            list->resizeColumnsToContents();
+        }
+    }
+}
+
+void ClientExpert::onSearchOrder()
+{
+    refreshOrders();
+}
+EOF
+
+          cat > client/Sources/client_factory.cpp <<'EOF'
+#include "client_factory.h"
+#include "ui_client_factory.h"
+#include "client_globals.h"
+#include "networkclient.h"
+#include "roomdialogs.h"
+
+#include <QJsonArray>
+#include <QJsonValue>
+#include <QMessageBox>
+#include <QTimer>
+#include <QDialog>
+#include <QVBoxLayout>
+#include <QHBoxLayout>
+#include <QLabel>
+#include <QLineEdit>
+#include <QTextEdit>
+#include <QDialogButtonBox>
+#include <QPushButton>
+#include <QTableWidget>
+#include <QHeaderView>
+#include <QBoxLayout>
+#include <QSizePolicy>
+#include <QDebug>
+
+static const char* SERVER_HOST = "127.0.0.1";
+static const quint16 SERVER_PORT = 12345;
+
+class NewOrderDialog : public QDialog {
+public:
+    QLineEdit *editTitle;
+    QTextEdit *editDesc;
+    NewOrderDialog(QWidget *parent = nullptr) : QDialog(parent) {
+        setWindowTitle(QStringLiteral("新建工单"));
+        setMinimumSize(420, 260);
+        QVBoxLayout *layout = new QVBoxLayout(this);
+        QLabel *lbl1 = new QLabel(QStringLiteral("工单标题："), this);
+        editTitle = new QLineEdit(this);
+        QLabel *lbl2 = new QLabel(QStringLiteral("工单描述："), this);
+        editDesc = new QTextEdit(this);
+        editDesc->setMinimumHeight(120);
+        QDialogButtonBox *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
+        layout->addWidget(lbl1);
+        layout->addWidget(editTitle);
+        layout->addWidget(lbl2);
+        layout->addWidget(editDesc);
+        layout->addWidget(buttons);
+        connect(buttons, &QDialogButtonBox::accepted, this, &QDialog::accept);
+        connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
+    }
+};
+
+ClientFactory::ClientFactory(QWidget *parent) :
+    QWidget(parent),
+    ui(new Ui::ClientFactory)
+{
+    ui->setupUi(this);
+
+    if (ui->tabWidget->count() > 0) ui->tabWidget->setCurrentIndex(0);
+
+    for (int i = ui->tabWidget->count()-1; i >= 0; --i) {
+        if (ui->tabWidget->tabText(i).contains(QStringLiteral("设备管理"))) {
+            ui->tabWidget->removeTab(i);
+        }
+    }
+
+    ui->comboBoxStatus->addItem(QStringLiteral("全部"));
+    ui->comboBoxStatus->addItem(QStringLiteral("待处理"));
+    ui->comboBoxStatus->addItem(QStringLiteral("已接受"));
+    ui->comboBoxStatus->addItem(QStringLiteral("已拒绝"));
+
+    connect(ui->tabWidget, &QTabWidget::currentChanged, this, &ClientFactory::on_tabChanged);
+
+    if (ui->btnSearchOrder) connect(ui->btnSearchOrder, &QPushButton::clicked, this, &ClientFactory::onSearchOrder);
+    if (ui->btnRefreshOrderStatus) connect(ui->btnRefreshOrderStatus, &QPushButton::clicked, this, &ClientFactory::refreshOrders);
+
+    for (int i = 0; i < ui->tabWidget->count(); ++i) {
+        if (ui->tabWidget->tabText(i).contains(QStringLiteral("实时通讯"))) {
+            QWidget *tab = ui->tabWidget->widget(i);
+
+            QWidget *container = tab->findChild<QWidget*>("realtime_container");
+            if (!container) {
+                container = new QWidget(tab);
+                container->setObjectName("realtime_container");
+                QVBoxLayout *containerLayout = new QVBoxLayout(container);
+                containerLayout->setContentsMargins(8,8,8,8);
+                containerLayout->setSpacing(8);
+
+                QHBoxLayout *topRow = new QHBoxLayout();
+                topRow->setContentsMargins(0,0,0,0);
+                topRow->setSpacing(6);
+                QPushButton *btnCreate = new QPushButton(QStringLiteral("发布会议"), container);
+                btnCreate->setObjectName("btnCreateRoom");
+                btnCreate->setMinimumWidth(100);
+                topRow->addWidget(btnCreate);
+                topRow->addStretch();
+                containerLayout->addLayout(topRow);
+
+                QTableWidget *table = new QTableWidget(container);
+                table->setObjectName("tableRooms");
+                table->setColumnCount(4);
+                table->setHorizontalHeaderLabels(QStringList{QStringLiteral("房间号"), QStringLiteral("标题"), QStringLiteral("发布者"), QStringLiteral("操作")});
+                table->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
+                table->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+                table->setMinimumHeight(300);
+                containerLayout->addWidget(table);
+
+                if (auto box = qobject_cast<QBoxLayout*>(tab->layout())) {
+                    box->insertWidget(0, container);
+                } else if (tab->layout()) {
+                    tab->layout()->addWidget(container);
+                } else {
+                    container->setGeometry(8, 8, tab->width()-16, tab->height()-16);
+                    container->show();
+                }
+
+                connect(btnCreate, &QPushButton::clicked, this, [this](){
+                    RoomPublishDialog dlg(this);
+                    if (dlg.exec() == QDialog::Accepted) {
+                        NetworkClient net(SERVER_HOST, SERVER_PORT);
+                        QJsonObject req;
+                        req["action"] = "create_room";
+                        req["title"] = dlg.title();
+                        req["host_url"] = dlg.hostUrl();
+                        req["factory_user"] = g_factoryUsername;
+                        req["room_id"] = dlg.roomId();
+                        req["password"] = dlg.password();
+                        QJsonObject resp = net.sendRequest(req);
+                        if (!resp.contains("ok") || !resp["ok"].toBool()) {
+                            QMessageBox::warning(this, QStringLiteral("提示"), QStringLiteral("创建房间失败"));
+                        } else {
+                            QMessageBox::information(this, QStringLiteral("提示"), QStringLiteral("创建房间成功"));
+                            on_tabChanged(ui->tabWidget->currentIndex());
+                        }
+                    }
+                });
+            }
+        }
+    }
+
+    refreshOrders();
+}
+
+ClientFactory::~ClientFactory()
+{
+    delete ui;
+}
+
+void ClientFactory::sendCreateOrder(const QString& title, const QString& desc)
+{
+    NetworkClient net(SERVER_HOST, SERVER_PORT);
+    QJsonObject req;
+    req["action"] = "new_order";
+    req["title"] = title;
+    req["desc"] = desc;
+    req["factory_user"] = g_factoryUsername;
+    QJsonObject resp = net.sendRequest(req);
+    if (!resp.contains("ok") || !resp["ok"].toBool()) {
+        QMessageBox::warning(this, QStringLiteral("提示"), QStringLiteral("服务器响应异常，创建失败"));
+    } else {
+        QMessageBox::information(this, QStringLiteral("提示"), QStringLiteral("创建工单成功"));
+    }
+}
+
+void ClientFactory::refreshOrders()
+{
+    NetworkClient net(SERVER_HOST, SERVER_PORT);
+    QJsonObject req;
+    req["action"] = "get_orders";
+    req["role"] = "factory";
+    if (!g_factoryUsername.isEmpty()) req["username"] = g_factoryUsername;
+    QString keyword = ui->lineEditKeyword->text().trimmed();
+    if (!keyword.isEmpty()) req["keyword"] = keyword;
+    QString status = ui->comboBoxStatus->currentText();
+    if (status != QStringLiteral("全部")) req["status"] = status;
+
+    QJsonObject resp = net.sendRequest(req);
+    if (!resp.contains("ok") || !resp["ok"].toBool()) {
+        QMessageBox::warning(this, QStringLiteral("提示"), QStringLiteral("服务器响应异常"));
+        return;
+    }
+    orders.clear();
+    QJsonArray arr = resp.value("orders").toArray();
+    for (const QJsonValue& v : arr) {
+        QJsonObject o = v.toObject();
+        OrderInfo od;
+        od.id = o.value("id").toInt();
+        od.title = o.value("title").toString();
+        od.desc = o.value("desc").toString();
+        od.status = o.value("status").toString();
+        orders.append(od);
+    }
+    auto* tbl = ui->tableOrders;
+    tbl->clear();
+    tbl->setColumnCount(4);
+    tbl->setRowCount(orders.size());
+    QStringList headers{QStringLiteral("工单号"), QStringLiteral("标题"), QStringLiteral("描述"), QStringLiteral("状态")};
+    tbl->setHorizontalHeaderLabels(headers);
+    for (int i = 0; i < orders.size(); ++i) {
+        const auto& od = orders[i];
+        tbl->setItem(i, 0, new QTableWidgetItem(QString::number(od.id)));
+        tbl->setItem(i, 1, new QTableWidgetItem(od.title));
+        tbl->setItem(i, 2, new QTableWidgetItem(od.desc));
+        tbl->setItem(i, 3, new QTableWidgetItem(od.status));
+    }
+    tbl->resizeColumnsToContents();
+    tbl->clearSelection();
+}
+
+void ClientFactory::on_btnNewOrder_clicked()
+{
+    NewOrderDialog dlg(this);
+    if (dlg.exec() == QDialog::Accepted) {
+        QString title = dlg.editTitle->text().trimmed();
+        QString desc = dlg.editDesc->toPlainText().trimmed();
+        if (title.isEmpty()) {
+            QMessageBox::warning(this, QStringLiteral("提示"), QStringLiteral("工单标题不能为空"));
+            return;
+        }
+        sendCreateOrder(title, desc);
+        QTimer::singleShot(150, this, [this]{ refreshOrders(); });
+    }
+}
+
+void ClientFactory::on_btnDeleteOrder_clicked()
+{
+    int row = ui->tableOrders->currentRow();
+    if (row < 0 || row >= orders.size()) {
+        QMessageBox::warning(this, QStringLiteral("提示"), QStringLiteral("请选择要销毁的工单"));
+        return;
+    }
+    int id = orders[row].id;
+    if (QMessageBox::question(this, QStringLiteral("确认"), QStringLiteral("确定要销毁该工单？")) != QMessageBox::Yes) {
+        return;
+    }
+    NetworkClient net(SERVER_HOST, SERVER_PORT);
+    QJsonObject req;
+    req["action"] = "delete_order";
+    req["id"] = id;
+    req["username"] = g_factoryUsername;
+    QJsonObject resp = net.sendRequest(req);
+    if (!resp.contains("ok") || !resp["ok"].toBool()) {
+        QMessageBox::warning(this, QStringLiteral("提示"), QStringLiteral("服务器响应异常或无权限"));
+        return;
+    }
+    QMessageBox::information(this, QStringLiteral("提示"), QStringLiteral("销毁工单成功"));
+    QTimer::singleShot(150, this, [this]{ refreshOrders(); });
+}
+
+void ClientFactory::on_tabChanged(int idx)
+{
+    if (idx == 0) refreshOrders();
+
+    if (ui->tabWidget->tabText(idx).contains(QStringLiteral("实时通讯"))) {
+        QWidget *tab = ui->tabWidget->widget(idx);
+        QWidget *container = tab->findChild<QWidget*>("realtime_container");
+        QTableWidget *list = nullptr;
+        if (container) list = container->findChild<QTableWidget*>("tableRooms");
+        if (!list) list = tab->findChild<QTableWidget*>("tableRooms");
+        if (!list) return;
+
+        NetworkClient net(SERVER_HOST, SERVER_PORT);
+        QJsonObject req; req["action"] = "list_rooms";
+        QJsonObject resp = net.sendRequest(req);
+        if (resp.contains("ok") && resp["ok"].toBool()) {
+            list->clearContents();
+            QJsonArray arr = resp.value("rooms").toArray();
+            list->setRowCount(arr.size());
+            for (int i=0;i<arr.size();++i) {
+                QJsonObject o = arr[i].toObject();
+                QString room_id = o.value("room_id").toString();
+                QString title = o.value("title").toString();
+                QString publisher = o.value("factory_user").toString();
+                list->setItem(i,0,new QTableWidgetItem(room_id));
+                list->setItem(i,1,new QTableWidgetItem(title));
+                list->setItem(i,2,new QTableWidgetItem(publisher));
+                list->setCellWidget(i,3, new QLabel(QStringLiteral("已发布")));
+            }
+            list->resizeColumnsToContents();
+        }
+    }
+}
+
+void ClientFactory::onSearchOrder()
+{
+    refreshOrders();
+}
+EOF
+
+          cat > client/Sources/client_globals.cpp <<'EOF'
+#include "client_globals.h"
+
+QString g_factoryUsername;
+QString g_expertUsername;
+EOF
+
+          cat > client/Sources/login.cpp <<'EOF'
+#include "login.h"
+#include "ui_login.h"
+#include "register.h"
+#include "client_factory.h"
+#include "client_expert.h"
+#include "client_globals.h"
+#include <QMessageBox>
+
+Login::Login(QWidget *parent) :
+    QWidget(parent),
+    ui(new Ui::Login),
+    net_(new NetworkClient("127.0.0.1", 12345, this))
+{
+    ui->setupUi(this);
+    initUI();
+
+    int idx = ui->roleComboBox->currentIndex();
+    if (idx == 1) applyRoleStyle("factory");
+    else if (idx == 2) applyRoleStyle("expert");
+    else applyRoleStyle("");
+}
+
+Login::~Login()
+{
+    delete ui;
+}
+
+void Login::initUI()
+{
+    if (ui->roleComboBox->count() < 3) {
+        ui->roleComboBox->clear();
+        ui->roleComboBox->addItem(QStringLiteral("请选择身份"));
+        ui->roleComboBox->addItem(QStringLiteral("工厂"));
+        ui->roleComboBox->addItem(QStringLiteral("专家"));
+        ui->roleComboBox->setCurrentIndex(0);
+    }
+}
+
+void Login::on_roleComboBox_currentIndexChanged(int index)
+{
+    if (index == 1) applyRoleStyle("factory");
+    else if (index == 2) applyRoleStyle("expert");
+    else applyRoleStyle("");
+}
+
+void Login::applyRoleStyle(const QString &role)
+{
+    if (ui->roleHeaderStack) {
+        if (role == "factory" && ui->factoryHeader) ui->roleHeaderStack->setCurrentWidget(ui->factoryHeader);
+        else if (role == "expert" && ui->expertHeader) ui->roleHeaderStack->setCurrentWidget(ui->expertHeader);
+        else if (ui->noneHeader) ui->roleHeaderStack->setCurrentWidget(ui->noneHeader);
+    }
+
+    if (role == "factory") this->setProperty("role", "factory");
+    else if (role == "expert") this->setProperty("role", "expert");
+    else this->setProperty("role", "");
+    if (this->style()) { this->style()->unpolish(this); this->style()->polish(this); }
+    this->update();
+}
+
+void Login::on_loginButton_clicked()
+{
+    const int roleIndex = ui->roleComboBox->currentIndex();
+    const QString roleText = ui->roleComboBox->currentText().trimmed();
+    const QString username = ui->usernameLineEdit->text().trimmed();
+    const QString password = ui->passwordLineEdit->text();
+
+    if (roleIndex <= 0 || (roleText != QStringLiteral("工厂") && roleText != QStringLiteral("专家"))) {
+        showError(QStringLiteral("请选择身份（工厂/专家）。"));
+        return;
+    }
+    if (username.isEmpty()) { showError(QStringLiteral("请输入账号。")); return; }
+    if (password.isEmpty()) { showError(QStringLiteral("请输入密码。")); return; }
+
+    QString role = (roleText == QStringLiteral("工厂")) ? "factory" : "expert";
+    QJsonObject req;
+    req["action"] = "login";
+    req["role"] = role;
+    req["username"] = username;
+    req["password"] = password;
+
+    QJsonObject resp = net_->sendRequest(req);
+    if (!resp.contains("ok") || !resp["ok"].toBool()) {
+        QString err = resp.contains("error") ? resp["error"].toString() : resp.value("message").toString();
+        if (err == "not_found") showError(QStringLiteral("用户未注册。"));
+        else if (err == "wrong_password") showError(QStringLiteral("密码错误，请重试。"));
+        else showError(QStringLiteral("登录失败：%1").arg(err));
+        return;
+    }
+
+    if (role == "factory") {
+        g_factoryUsername = username;
+        ClientFactory *f = new ClientFactory();
+        f->setAttribute(Qt::WA_DeleteOnClose);
+        f->show();
+    } else {
+        g_expertUsername = username;
+        ClientExpert *e = new ClientExpert();
+        e->setAttribute(Qt::WA_DeleteOnClose);
+        e->show();
+    }
+    this->close();
+}
+
+void Login::on_goRegisterButton_clicked()
+{
+    Register *r = new Register(nullptr);
+    r->setAttribute(Qt::WA_DeleteOnClose);
+
+    connect(r, &Register::backToLogin, this, [this](){
+        this->show();
+    });
+    connect(r, &QObject::destroyed, this, [this](){
+        this->show();
+    });
+
+    r->show();
+    this->hide();
+}
+
+void Login::showError(const QString &msg)
+{
+    QMessageBox::critical(this, QStringLiteral("错误"), msg);
+}
+
+void Login::showInfo(const QString &msg)
+{
+    QMessageBox::information(this, QStringLiteral("提示"), msg);
+}
+EOF
+
+          cat > client/Sources/main.cpp <<'EOF'
+#include <QApplication>
+#include "login.h"
+
+int main(int argc, char *argv[])
+{
+    QApplication a(argc, argv);
+    Login w;
+    w.show();
+    return a.exec();
+}
+EOF
+
+          cat > client/Sources/networkclient.cpp <<'EOF'
+#include "networkclient.h"
+#include <QTcpSocket>
+#include <QJsonDocument>
+#include <QJsonParseError>
+#include <QDebug>
+
+NetworkClient::NetworkClient(const QString &host, quint16 port, QObject *parent)
+    : QObject(parent), host_(host), port_(port)
+{
+}
+
+QJsonObject NetworkClient::sendRequest(const QJsonObject &req, int timeoutMs)
+{
+    QTcpSocket sock;
+    sock.connectToHost(host_, port_);
+    if (!sock.waitForConnected(timeoutMs)) {
+        return QJsonObject{{"ok", false}, {"error", "connect_failed"}, {"message", sock.errorString()}};
+    }
+    QByteArray out = QJsonDocument(req).toJson(QJsonDocument::Compact) + "\n";
+    qint64 written = sock.write(out);
+    if (written == -1 || !sock.waitForBytesWritten(timeoutMs)) {
+        return QJsonObject{{"ok", false}, {"error", "write_failed"}, {"message", sock.errorString()}};
+    }
+    if (!sock.waitForReadyRead(timeoutMs)) {
+        return QJsonObject{{"ok", false}, {"error", "timeout_or_empty"}};
+    }
+    QByteArray in = sock.readAll();
+    int nl = in.indexOf('\n');
+    if (nl >= 0) in = in.left(nl);
+    QJsonParseError perr;
+    QJsonDocument doc = QJsonDocument::fromJson(in, &perr);
+    if (perr.error != QJsonParseError::NoError || !doc.isObject()) {
+        qWarning() << "NetworkClient: parse error:" << perr.errorString() << "data:" << in;
+        return QJsonObject{{"ok", false}, {"error", "invalid_json"}, {"message", perr.errorString()}};
+    }
+    return doc.object();
+}
+EOF
+
+          cat > client/Sources/register.cpp <<'EOF'
+#include "register.h"
+#include "ui_register.h"
+#include <QMessageBox>
+
+Register::Register(QWidget *parent) :
+    QWidget(parent),
+    ui(new Ui::Register),
+    net_(new NetworkClient("127.0.0.1", 12345, this))
+{
+    ui->setupUi(this);
+
+    if (ui->roleComboBox->count() < 1) {
+        ui->roleComboBox->addItem(QStringLiteral("请选择身份"));
+        ui->roleComboBox->addItem(QStringLiteral("工厂"));
+        ui->roleComboBox->addItem(QStringLiteral("专家"));
+    }
+
+    initUI();
+
+    connect(ui->roleComboBox, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            this, &Register::on_roleComboBox_currentIndexChanged);
+
+    int idx = ui->roleComboBox->currentIndex();
+    if (idx == 1) applyRoleStyle("factory");
+    else if (idx == 2) applyRoleStyle("expert");
+    else applyRoleStyle("");
+}
+
+Register::~Register()
+{
+    delete ui;
+}
+
+void Register::initUI()
+{
+    if (ui->roleComboBox->count() < 3) {
+        ui->roleComboBox->clear();
+        ui->roleComboBox->addItem(QStringLiteral("请选择身份"));
+        ui->roleComboBox->addItem(QStringLiteral("工厂"));
+        ui->roleComboBox->addItem(QStringLiteral("专家"));
+    }
+}
+
+void Register::applyRoleStyle(const QString &role)
+{
+    if (ui->roleHeaderStack) {
+        if (role == "factory" && ui->factoryHeader) ui->roleHeaderStack->setCurrentWidget(ui->factoryHeader);
+        else if (role == "expert" && ui->expertHeader) ui->roleHeaderStack->setCurrentWidget(ui->expertHeader);
+        else if (ui->noneHeader) ui->roleHeaderStack->setCurrentWidget(ui->noneHeader);
+    }
+
+    if (role == "factory") this->setProperty("role", "factory");
+    else if (role == "expert") this->setProperty("role", "expert");
+    else this->setProperty("role", "");
+
+    if (this->style()) {
+        this->style()->unpolish(this);
+        this->style()->polish(this);
+    }
+    this->update();
+}
+
+void Register::on_roleComboBox_currentIndexChanged(int index)
+{
+    if (index == 1) applyRoleStyle("factory");
+    else if (index == 2) applyRoleStyle("expert");
+    else applyRoleStyle("");
+}
+
+void Register::showError(const QString &msg)
+{
+    QMessageBox::critical(this, QStringLiteral("错误"), msg);
+}
+
+void Register::showInfo(const QString &msg)
+{
+    QMessageBox::information(this, QStringLiteral("提示"), msg);
+}
+
+void Register::on_backLoginButton_clicked()
+{
+    emit backToLogin();
+    this->close();
+}
+
+void Register::on_registerButton_clicked()
+{
+    const QString roleText = ui->roleComboBox->currentText().trimmed();
+    const QString username = ui->usernameLineEdit->text().trimmed();
+    const QString password = ui->passwordLineEdit->text();
+    const QString confirm = ui->confirmLineEdit->text();
+
+    if (roleText != QStringLiteral("工厂") && roleText != QStringLiteral("专家")) {
+        showError(QStringLiteral("请选择身份（工厂/专家）。"));
+        return;
+    }
+    if (username.isEmpty()) { showError(QStringLiteral("请输入账号。")); return; }
+    if (password.isEmpty()) { showError(QStringLiteral("请输入密码。")); return; }
+    if (password != confirm) { showError(QStringLiteral("两次密码输入不一致。")); return; }
+
+    QString role = (roleText == QStringLiteral("工厂")) ? "factory" : "expert";
+    QJsonObject req;
+    req["action"] = "register";
+    req["role"] = role;
+    req["username"] = username;
+    req["password"] = password;
+
+    QJsonObject resp = net_->sendRequest(req);
+    if (!resp.contains("ok") || !resp["ok"].toBool()) {
+        QString err = resp.contains("error") ? resp["error"].toString() : resp.value("message").toString();
+        if (err == "user_exists") showError(QStringLiteral("用户已存在。"));
+        else showError(QStringLiteral("注册失败：%1").arg(err));
+        return;
+    }
+    showInfo(QStringLiteral("注册成功，请登录。"));
+    emit backToLogin();
+    this->close();
+}
+EOF
+
+          cat > client/Sources/roomdialogs.cpp <<'EOF'
+#include "roomdialogs.h"
+#include <QUuid>
+#include <QVBoxLayout>
+#include <QLabel>
+#include <QLineEdit>
+#include <QPushButton>
+#include <QDialogButtonBox>
+#include <QFormLayout>
+#include <QDebug>
+
+RoomPublishDialog::RoomPublishDialog(QWidget *parent)
+    : QDialog(parent), ui(nullptr)
+{
+    setWindowTitle(QStringLiteral("发布会议房间"));
+    setMinimumSize(420, 180);
+
+    QFormLayout *form = new QFormLayout(this);
+
+    QString rid = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    QLineEdit *editRoomId = new QLineEdit(rid, this);
+    editRoomId->setReadOnly(true);
+    form->addRow(QStringLiteral("房间号："), editRoomId);
+
+    QLineEdit *editTitle = new QLineEdit(this);
+    form->addRow(QStringLiteral("房间名称："), editTitle);
+
+    QLineEdit *editHostUrl = new QLineEdit(this);
+    form->addRow(QStringLiteral("房间链接（可选）："), editHostUrl);
+
+    QLineEdit *editPassword = new QLineEdit(this);
+    editPassword->setEchoMode(QLineEdit::Password);
+    form->addRow(QStringLiteral("房间密码（可选）："), editPassword);
+
+    QDialogButtonBox *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
+    form->addRow(buttons);
+
+    connect(buttons, &QDialogButtonBox::accepted, this, &QDialog::accept);
+    connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
+
+    editRoomId->setObjectName("rd_roomId");
+    editTitle->setObjectName("rd_title");
+    editPassword->setObjectName("rd_password");
+    editHostUrl->setObjectName("rd_hosturl");
+}
+
+RoomPublishDialog::~RoomPublishDialog()
+{
+}
+
+QString RoomPublishDialog::roomId() const
+{
+    if (auto e = findChild<QLineEdit*>("rd_roomId")) return e->text();
+    return QString();
+}
+QString RoomPublishDialog::title() const
+{
+    if (auto e = findChild<QLineEdit*>("rd_title")) return e->text();
+    return QString();
+}
+QString RoomPublishDialog::password() const
+{
+    if (auto e = findChild<QLineEdit*>("rd_password")) return e->text();
+    return QString();
+}
+QString RoomPublishDialog::hostUrl() const
+{
+    if (auto e = findChild<QLineEdit*>("rd_hosturl")) return e->text();
+    return QString();
+}
+
+RoomPasswordDialog::RoomPasswordDialog(const QString &roomTitle, QWidget *parent)
+    : QDialog(parent), ui(nullptr)
+{
+    setWindowTitle(QStringLiteral("输入房间密码"));
+    setMinimumSize(360, 120);
+
+    QVBoxLayout *v = new QVBoxLayout(this);
+    if (!roomTitle.isEmpty()) {
+        QLabel *lbl = new QLabel(QStringLiteral("进入房间：%1").arg(roomTitle), this);
+        v->addWidget(lbl);
+    }
+    QLineEdit *edit = new QLineEdit(this);
+    edit->setEchoMode(QLineEdit::Password);
+    edit->setObjectName("pwd_input");
+    edit->setPlaceholderText(QStringLiteral("请输入房间密码"));
+    v->addWidget(edit);
+
+    QDialogButtonBox *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
+    v->addWidget(buttons);
+    connect(buttons, &QDialogButtonBox::accepted, this, &QDialog::accept);
+    connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
+}
+
+RoomPasswordDialog::~RoomPasswordDialog()
+{
+}
+
+QString RoomPasswordDialog::password() const
+{
+    if (auto e = findChild<QLineEdit*>("pwd_input")) return e->text();
+    return QString();
+}
+
+VideoWindow::VideoWindow(const QString &roomId, const QString &hostUrl, QWidget *parent)
+    : QWidget(parent), roomId_(roomId), hostUrl_(hostUrl)
+{
+    setWindowTitle(QStringLiteral("在线视频 - %1").arg(roomId_));
+    setMinimumSize(800, 480);
+
+    QVBoxLayout *l = new QVBoxLayout(this);
+    QLabel *lbl = new QLabel(QStringLiteral("在线视频占位页"), this);
+    lbl->setStyleSheet("font-weight:bold;font-size:16px;");
+    l->addWidget(lbl);
+
+    QLabel *info = new QLabel(QStringLiteral("房间：%1\n链接：%2").arg(roomId_).arg(hostUrl_), this);
+    info->setWordWrap(true);
+    l->addWidget(info);
+
+    QLabel *hint = new QLabel(QStringLiteral("提示：此处为占位。后续会把独立视频系统嵌入到这里（QWebEngineView/SDK）。"), this);
+    hint->setWordWrap(true);
+    l->addWidget(hint);
+}
+
+VideoWindow::~VideoWindow()
+{
+}
+
+void VideoWindow::setHostUrl(const QString &url)
+{
+    hostUrl_ = url;
+}
+EOF
+
+          cat > client/Forms/client_expert.ui <<'EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>ClientExpert</class>
+ <widget class="QWidget" name="ClientExpert">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>700</width>
+    <height>500</height>
+   </rect>
+  </property>
+  <layout class="QVBoxLayout" name="verticalLayoutMain">
+   <item>
+    <widget class="QTabWidget" name="tabWidget">
+     <property name="currentIndex">
+      <number>3</number>
+     </property>
+     <widget class="QWidget" name="tabOrder">
+      <attribute name="title">
+       <string>工单设置</string>
+      </attribute>
+      <layout class="QVBoxLayout" name="verticalLayoutTabOrder">
+       <item>
+        <layout class="QHBoxLayout" name="horizontalLayoutSearch">
+         <item>
+          <widget class="QLineEdit" name="lineEditKeyword"/>
+         </item>
+         <item>
+          <widget class="QComboBox" name="comboBoxStatus"/>
+         </item>
+         <item>
+          <widget class="QPushButton" name="btnSearchOrder">
+           <property name="text">
+            <string>搜索</string>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </item>
+       <item>
+        <widget class="QTableWidget" name="tableOrders"/>
+       </item>
+       <item>
+        <layout class="QHBoxLayout" name="horizontalLayoutOrderButtons">
+         <item>
+          <widget class="QPushButton" name="btnAccept">
+           <property name="text">
+            <string>接受工单</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QPushButton" name="btnReject">
+           <property name="text">
+            <string>拒绝工单</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QPushButton" name="btnRefreshOrderStatus">
+           <property name="text">
+            <string>刷新状态</string>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </item>
+      </layout>
+     </widget>
+     <widget class="QWidget" name="tabDevice">
+      <attribute name="title">
+       <string>设备管理</string>
+      </attribute>
+     </widget>
+     <widget class="QWidget" name="tabOther">
+      <attribute name="title">
+       <string>企业知识库</string>
+      </attribute>
+     </widget>
+     <widget class="QWidget" name="tabRealtime">
+      <attribute name="title">
+       <string>实时通讯</string>
+      </attribute>
+     </widget>
+    </widget>
+   </item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>
+EOF
+
+          cat > client/Forms/client_factory.ui <<'EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>ClientFactory</class>
+ <widget class="QWidget" name="ClientFactory">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>700</width>
+    <height>500</height>
+   </rect>
+  </property>
+  <layout class="QVBoxLayout" name="verticalLayoutMain">
+   <item>
+    <widget class="QTabWidget" name="tabWidget">
+     <widget class="QWidget" name="tabOrder">
+      <attribute name="title"><string>工单设置</string></attribute>
+      <layout class="QVBoxLayout" name="verticalLayoutTabOrder">
+       <item>
+        <layout class="QHBoxLayout" name="horizontalLayoutSearch">
+         <item>
+          <widget class="QLineEdit" name="lineEditKeyword"><property name="placeholderText"><string>关键词</string></property></widget>
+         </item>
+         <item>
+          <widget class="QComboBox" name="comboBoxStatus"/>
+         </item>
+         <item>
+          <widget class="QPushButton" name="btnSearchOrder"><property name="text"><string>搜索</string></property></widget>
+         </item>
+        </layout>
+       </item>
+       <item>
+        <widget class="QTableWidget" name="tableOrders"/>
+       </item>
+       <item>
+        <layout class="QHBoxLayout" name="horizontalLayoutOrderButtons">
+         <item><widget class="QPushButton" name="btnNewOrder"><property name="text"><string>新建工单</string></property></widget></item>
+         <item><widget class="QPushButton" name="btnDeleteOrder"><property name="text"><string>销毁工单</string></property></widget></item>
+         <item><widget class="QPushButton" name="btnRefreshOrderStatus"><property name="text"><string>刷新状态</string></property></widget></item>
+        </layout>
+       </item>
+      </layout>
+     </widget>
+     <widget class="QWidget" name="tabDevice"><attribute name="title"><string>设备管理</string></attribute></widget>
+     <widget class="QWidget" name="tabOther"><attribute name="title"><string>企业知识库</string></attribute></widget>
+     <widget class="QWidget" name="tabRealtime"><attribute name="title"><string>实时通讯</string></attribute></widget>
+    </widget>
+   </item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>
+EOF
+
+          cat > client/Forms/login.ui <<'EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>Login</class>
+ <widget class="QWidget" name="Login">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>520</width>
+    <height>566</height>
+   </rect>
+  </property>
+  <property name="windowTitle">
+   <string>登录</string>
+  </property>
+  <property name="styleSheet">
+   <string notr="true">
+*{font-family: &quot;Microsoft YaHei&quot;;}
+QWidget{background:#1e1e1e;color:#ffffff;}
+QGroupBox{border:1px solid #333;border-radius:8px;margin-top:12px;}
+QLineEdit,QComboBox{background:#2c2c2c;border:1px solid #3c3c3c;border-radius:6px;padding:6px;}
+QPushButton{border:none;border-radius:8px;height:48px;color:#ffffff;padding:0 14px;font-size:16px;}
+QPushButton#loginButton{background:#1e88e5;}
+QPushButton#goRegisterButton{background:#3a3a3a;border:1px solid #4a4a4a;}
+QWidget[role=&quot;factory&quot;] QPushButton#loginButton { background:#20c997; }
+QWidget[role=&quot;expert&quot;]  QPushButton#loginButton { background:#7c4dff; }
+   </string>
+  </property>
+  <layout class="QVBoxLayout" name="root" stretch="0,0,1,0">
+   <property name="spacing">
+    <number>16</number>
+   </property>
+   <property name="leftMargin">
+    <number>28</number>
+   </property>
+   <property name="topMargin">
+    <number>24</number>
+   </property>
+   <property name="rightMargin">
+    <number>28</number>
+   </property>
+   <property name="bottomMargin">
+    <number>24</number>
+   </property>
+   <item>
+    <widget class="QStackedWidget" name="roleHeaderStack">
+     <property name="minimumSize">
+      <size>
+       <width>0</width>
+       <height>90</height>
+      </size>
+     </property>
+     <property name="currentIndex">
+      <number>0</number>
+     </property>
+     <widget class="QWidget" name="noneHeader">
+      <property name="styleSheet">
+       <string notr="true">QWidget#noneHeader{background:#3a3a3a;border-radius:8px;}</string>
+      </property>
+      <layout class="QHBoxLayout" name="noneHeaderLayout">
+       <property name="leftMargin">
+        <number>12</number>
+       </property>
+       <property name="rightMargin">
+        <number>12</number>
+       </property>
+       <item>
+        <widget class="QLabel" name="noneTitle">
+         <property name="styleSheet">
+          <string notr="true">font-size:18px;font-weight:bold;color:#bfc3c6;</string>
+         </property>
+         <property name="text">
+          <string>请选择身份以继续</string>
+         </property>
+         <property name="alignment">
+          <set>Qt::AlignCenter</set>
+         </property>
+        </widget>
+       </item>
+      </layout>
+     </widget>
+     <widget class="QWidget" name="factoryHeader">
+      <property name="styleSheet">
+       <string notr="true">QWidget#factoryHeader{background:#123f38;border-radius:8px;}</string>
+      </property>
+      <layout class="QHBoxLayout" name="factoryHeaderLayout">
+       <property name="leftMargin">
+        <number>12</number>
+       </property>
+       <property name="rightMargin">
+        <number>12</number>
+       </property>
+       <item>
+        <widget class="QLabel" name="factoryTitle">
+         <property name="styleSheet">
+          <string notr="true">font-size:18px;font-weight:bold;color:#20c997;</string>
+         </property>
+         <property name="text">
+          <string>工厂客户端登录</string>
+         </property>
+         <property name="alignment">
+          <set>Qt::AlignCenter</set>
+         </property>
+        </widget>
+       </item>
+      </layout>
+     </widget>
+     <widget class="QWidget" name="expertHeader">
+      <property name="styleSheet">
+       <string notr="true">QWidget#expertHeader{background:#251e3a;border-radius:8px;}</string>
+      </property>
+      <layout class="QHBoxLayout" name="expertHeaderLayout">
+       <property name="leftMargin">
+        <number>12</number>
+       </property>
+       <property name="rightMargin">
+        <number>12</number>
+       </property>
+       <item>
+        <widget class="QLabel" name="expertTitle">
+         <property name="styleSheet">
+          <string notr="true">font-size:18px;font-weight:bold;color:#7c4dff;</string>
+         </property>
+         <property name="text">
+          <string>技术专家客户端登录</string>
+         </property>
+         <property name="alignment">
+          <set>Qt::AlignCenter</set>
+         </property>
+        </widget>
+       </item>
+      </layout>
+     </widget>
+    </widget>
+   </item>
+   <item>
+    <widget class="QLabel" name="logoLabel">
+     <property name="minimumSize">
+      <size>
+       <width>0</width>
+       <height>36</height>
+      </size>
+     </property>
+     <property name="styleSheet">
+      <string notr="true">font-size:20px;font-weight:bold;color:#1e88e5;</string>
+     </property>
+     <property name="text">
+      <string>工业现场远程专家支持系统</string>
+     </property>
+     <property name="alignment">
+      <set>Qt::AlignCenter</set>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QGroupBox" name="formBox">
+     <property name="title">
+      <string/>
+     </property>
+     <layout class="QVBoxLayout" name="form">
+      <property name="spacing">
+       <number>14</number>
+      </property>
+      <property name="leftMargin">
+       <number>18</number>
+      </property>
+      <property name="topMargin">
+       <number>18</number>
+      </property>
+      <property name="rightMargin">
+       <number>18</number>
+      </property>
+      <property name="bottomMargin">
+       <number>18</number>
+      </property>
+      <item>
+       <widget class="QComboBox" name="roleComboBox">
+        <item><property name="text"><string>请选择身份</string></property></item>
+        <item><property name="text"><string>工厂</string></property></item>
+        <item><property name="text"><string>专家</string></property></item>
+       </widget>
+      </item>
+      <item>
+       <widget class="QLineEdit" name="usernameLineEdit">
+        <property name="placeholderText"><string>账号</string></property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QLineEdit" name="passwordLineEdit">
+        <property name="echoMode"><enum>QLineEdit::Password</enum></property>
+        <property name="placeholderText"><string>密码</string></property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QPushButton" name="loginButton">
+        <property name="minimumSize"><size><width>0</width><height>48</height></size></property>
+        <property name="text"><string>登录</string></property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QPushButton" name="goRegisterButton">
+        <property name="minimumSize"><size><width>0</width><height>44</height></size></property>
+        <property name="text"><string>前往注册</string></property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <widget class="QLabel" name="foot">
+     <property name="styleSheet"><string notr="true">color:#828a9a;font-size:12px;</string></property>
+     <property name="text"><string/></property>
+     <property name="alignment"><set>Qt::AlignCenter</set></property>
+    </widget>
+   </item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>
+EOF
+
+          cat > client/Forms/register.ui <<'EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>Register</class>
+ <widget class="QWidget" name="Register">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>520</width>
+    <height>627</height>
+   </rect>
+  </property>
+  <property name="windowTitle">
+   <string>注册</string>
+  </property>
+  <property name="styleSheet">
+   <string notr="true">
+*{font-family: &quot;Microsoft YaHei&quot;;}
+QWidget{background:#1e1e1e;color:#ffffff;}
+QGroupBox{border:1px solid #333;border-radius:8px;margin-top:12px;}
+QLineEdit,QComboBox{background:#2c2c2c;border:1px solid #3c3c3c;border-radius:6px;padding:6px;}
+QPushButton{border:none;border-radius:8px;height:52px;color:#ffffff;padding:0 14px;font-size:16px;}
+QPushButton#registerButton{background:#1e88e5;}
+QPushButton#backLoginButton{background:#3a3a3a;border:1px solid #4a4a4a;}
+QWidget[role=&quot;factory&quot;] QPushButton#registerButton { background:#20c997; }
+QWidget[role=&quot;expert&quot;]  QPushButton#registerButton { background:#7c4dff; }
+   </string>
+  </property>
+  <layout class="QVBoxLayout" name="root" stretch="0,0,1,0">
+   <property name="spacing">
+    <number>16</number>
+   </property>
+   <property name="leftMargin">
+    <number>28</number>
+   </property>
+   <property name="topMargin">
+    <number>24</number>
+   </property>
+   <property name="rightMargin">
+    <number>28</number>
+   </property>
+   <property name="bottomMargin">
+    <number>24</number>
+   </property>
+   <item>
+    <widget class="QStackedWidget" name="roleHeaderStack">
+     <property name="minimumSize"><size><width>0</width><height>90</height></size></property>
+     <property name="currentIndex"><number>0</number></property>
+     <widget class="QWidget" name="noneHeader">
+      <property name="styleSheet"><string notr="true">QWidget#noneHeader{background:#3a3a3a;border-radius:8px;}</string></property>
+      <layout class="QHBoxLayout" name="noneHeaderLayout_reg">
+       <property name="leftMargin"><number>12</number></property>
+       <property name="rightMargin"><number>12</number></property>
+       <item>
+        <widget class="QLabel" name="noneTitle_reg">
+         <property name="styleSheet"><string notr="true">font-size:18px;font-weight:bold;color:#bfc3c6;</string></property>
+         <property name="text"><string>请选择身份以注册</string></property>
+         <property name="alignment"><set>Qt::AlignCenter</set></property>
+        </widget>
+       </item>
+      </layout>
+     </widget>
+     <widget class="QWidget" name="factoryHeader">
+      <property name="styleSheet"><string notr="true">QWidget#factoryHeader{background:#123f38;border-radius:8px;}</string></property>
+      <layout class="QHBoxLayout" name="factoryHeaderLayout">
+       <property name="leftMargin"><number>12</number></property>
+       <property name="rightMargin"><number>12</number></property>
+       <item>
+        <widget class="QLabel" name="factoryTitle">
+         <property name="styleSheet"><string notr="true">font-size:18px;font-weight:bold;color:#20c997;</string></property>
+         <property name="text"><string>工厂客户端注册</string></property>
+         <property name="alignment"><set>Qt::AlignCenter</set></property>
+        </widget>
+       </item>
+      </layout>
+     </widget>
+     <widget class="QWidget" name="expertHeader">
+      <property name="styleSheet"><string notr="true">QWidget#expertHeader{background:#251e3a;border-radius:8px;}</string></property>
+      <layout class="QHBoxLayout" name="expertHeaderLayout">
+       <property name="leftMargin"><number>12</number></property>
+       <property name="rightMargin"><number>12</number></property>
+       <item>
+        <widget class="QLabel" name="expertTitle">
+         <property name="styleSheet"><string notr="true">font-size:18px;font-weight:bold;color:#7c4dff;</string></property>
+         <property name="text"><string>技术专家客户端注册</string></property>
+         <property name="alignment"><set>Qt::AlignCenter</set></property>
+        </widget>
+       </item>
+      </layout>
+     </widget>
+    </widget>
+   </item>
+   <item>
+    <widget class="QLabel" name="logoLabel">
+     <property name="minimumSize"><size><width>0</width><height>36</height></size></property>
+     <property name="styleSheet"><string notr="true">font-size:20px;font-weight:bold;color:#1e88e5;</string></property>
+     <property name="text"><string>工业现场远程专家支持系统</string></property>
+     <property name="alignment"><set>Qt::AlignCenter</set></property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QGroupBox" name="formBox">
+     <property name="title"><string/></property>
+     <layout class="QVBoxLayout" name="form">
+      <property name="spacing"><number>14</number></property>
+      <property name="leftMargin"><number>18</number></property>
+      <property name="topMargin"><number>18</number></property>
+      <property name="rightMargin"><number>18</number></property>
+      <property name="bottomMargin"><number>18</number></property>
+      <item>
+       <widget class="QComboBox" name="roleComboBox">
+        <item><property name="text"><string>请选择身份</string></property></item>
+        <item><property name="text"><string>工厂</string></property></item>
+        <item><property name="text"><string>专家</string></property></item>
+       </widget>
+      </item>
+      <item>
+       <widget class="QLineEdit" name="usernameLineEdit">
+        <property name="placeholderText"><string>账号</string></property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QLineEdit" name="passwordLineEdit">
+        <property name="echoMode"><enum>QLineEdit::Password</enum></property>
+        <property name="placeholderText"><string>密码</string></property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QLineEdit" name="confirmLineEdit">
+        <property name="echoMode"><enum>QLineEdit::Password</enum></property>
+        <property name="placeholderText"><string>确认密码</string></property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QPushButton" name="registerButton">
+        <property name="minimumSize"><size><width>0</width><height>52</height></size></property>
+        <property name="text"><string>立即注册</string></property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QPushButton" name="backLoginButton">
+        <property name="minimumSize"><size><width>0</width><height>44</height></size></property>
+        <property name="text"><string>返回登录</string></property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <widget class="QLabel" name="foot">
+     <property name="styleSheet"><string notr="true">color:#828a9a;font-size:12px;</string></property>
+     <property name="text"><string/></property>
+     <property name="alignment"><set>Qt::AlignCenter</set></property>
+    </widget>
+   </item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>
+EOF
+
+          git add -A
+          git status --porcelain
+          EOS
+          chmod +x scripts/populate-client-ui.sh
+          scripts/populate-client-ui.sh
+
+      - name: Create PR with changes
+        uses: peter-evans/create-pull-request@v6
+        with:
+          commit-message: "feat(client): role-based login/register, work orders UI, improved design"
+          title: "feat(client): role-based login/register, work orders UI"
+          body: "Adds client UI (login/register, factory/expert, orders, realtime placeholders) and updates qmake project."
+          branch: "feat/client-ui"
+          delete-branch: false

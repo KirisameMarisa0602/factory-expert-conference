@@ -1,4 +1,4 @@
-QT += core gui widgets network sql
+QT += core gui widgets network sql multimedia
 CONFIG += c++11
 TEMPLATE = app
 TARGET = client
